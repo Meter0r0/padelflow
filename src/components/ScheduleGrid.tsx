@@ -87,7 +87,8 @@ export default function ScheduleGrid({ courts, matches, selectedDate, clubHours 
     });
 
     const displayedCourts = isMobile ? courts.filter(c => c.id === selectedMobileCourtId) : courts;
-    const gridMinWidth = isMobile ? '100%' : Math.max(displayedCourts.length * 150 + 70, 400);
+    // Reduce the horizontal space each court column takes on desktop to make it fit narrower
+    const gridMinWidth = isMobile ? '100%' : Math.max(displayedCourts.length * 90 + 70, 400);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
@@ -130,7 +131,7 @@ export default function ScheduleGrid({ courts, matches, selectedDate, clubHours 
                 ref={scrollContainerRef}
                 style={{
                     width: '100%',
-                    maxWidth: '1200px',
+                    maxWidth: '800px',
                     margin: '0 auto',
                     overflowX: 'auto',
                     background: 'var(--card-bg)',
