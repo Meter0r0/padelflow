@@ -131,7 +131,7 @@ export default function ScheduleGrid({ courts, matches, selectedDate, clubHours 
                 ref={scrollContainerRef}
                 style={{
                     width: '100%',
-                    maxWidth: '800px',
+                    maxWidth: '100%',
                     margin: '0 auto',
                     overflowX: 'auto',
                     background: 'var(--card-bg)',
