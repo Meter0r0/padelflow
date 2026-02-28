@@ -563,9 +563,9 @@ export const MatchService = {
                 .eq('id', session.id);
 
             // 4. Send Message via Telegram (if applicable)
-            if (session.provider === 'telegram' && session.telegram_chat_id) {
+            if (session.provider === 'telegram' && session.telegram_chat_id && session.client_id) {
                 const text = `✅ <b>¡Seña Confirmada!</b>\n\nTu club nos avisó que recibió el pago. Tu partido quedó registrado correctamente.\n\nPodés compartir el link de inscripción con tus amigos o revisar los detalles cuando quieras.`;
-                await TelegramService.sendMessage(session.telegram_chat_id, text);
+                await TelegramService.sendMessage(session.client_id, session.telegram_chat_id, text);
             }
             // Note: WhatsApp outbound messaging would be integrated here in the future
 

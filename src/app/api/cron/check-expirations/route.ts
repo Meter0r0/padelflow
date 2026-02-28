@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
             telegram_chat_id,
             provider,
             active_booking_id,
+            client_id,
             matches (
                 id,
                 created_at,
@@ -74,8 +75,8 @@ export async function GET(req: NextRequest) {
             if (createdAt <= sixtyMinsAgo) {
                 const message = "❌ *NOTIFICACIÓN DE CADUCIDAD* ❌\n\nTu pre-reserva ha vencido debido a que transcurrió el tiempo de 1 hora sin registrar el pago. Ya podés volver a usar el bot para gestionar una nueva reserva. ¡Te esperamos pronto! 👋🎾";
 
-                if (session.provider === 'telegram' && session.telegram_chat_id) {
-                    await TelegramService.sendMessage(session.telegram_chat_id, message);
+                if (session.provider === 'telegram' && session.telegram_chat_id && session.client_id) {
+                    await TelegramService.sendMessage(session.client_id, session.telegram_chat_id, message);
                 } else if (session.provider === 'whatsapp' && session.phone_number) {
                     // await WhatsAppService.sendMessage(session.phone_number, message);
                 }
@@ -94,8 +95,8 @@ export async function GET(req: NextRequest) {
             if (createdAt <= fortyFiveMinsAgo && createdAt >= fiftyMinsAgo) {
                 const message = "⚠️ *RECORDATORIO DE GESTIÓN* ⚠️\n\nLe informamos que su pre-reserva vencerá en 15 minutos. Por favor, remita el comprobante de pago a la brevedad para asegurar su lugar. De lo contrario, la reserva será cancelada automáticamente. Gracias.";
 
-                if (session.provider === 'telegram' && session.telegram_chat_id) {
-                    await TelegramService.sendMessage(session.telegram_chat_id, message);
+                if (session.provider === 'telegram' && session.telegram_chat_id && session.client_id) {
+                    await TelegramService.sendMessage(session.client_id, session.telegram_chat_id, message);
                 } else if (session.provider === 'whatsapp' && session.phone_number) {
                     // await WhatsAppService.sendMessage(session.phone_number, message);
                 }
@@ -136,7 +137,7 @@ export async function GET(req: NextRequest) {
     const twentyMinsAgo = new Date(now.getTime() - 20 * 60000);
     const { data: inactiveSessions, error: inactiveError } = await supabase
         .from('whatsapp_sessions')
-        .select('id, phone_number, telegram_chat_id, provider, current_state, last_interaction')
+        .select('id, phone_number, telegram_chat_id, provider, current_state, last_interaction, client_id')
         .neq('current_state', 'IDLE')
         .neq('current_state', 'AWAITING_PAYMENT') // Don't time out people waiting for payment confirmation here, 
         // the 60-min logic above handles them.
@@ -149,8 +150,8 @@ export async function GET(req: NextRequest) {
         for (const session of inactiveSessions) {
             const message = "⏳ *CONVERSACIÓN FINALIZADA* ⏳\n\nParece que no has tenido actividad por un momento, así que he cerrado la sesión. ¡No dudes en escribirme de nuevo cuando quieras reservar! 👋🎾";
 
-            if (session.provider === 'telegram' && session.telegram_chat_id) {
-                await TelegramService.sendMessage(session.telegram_chat_id, message);
+            if (session.provider === 'telegram' && session.telegram_chat_id && session.client_id) {
+                await TelegramService.sendMessage(session.client_id, session.telegram_chat_id, message);
             } else if (session.provider === 'whatsapp' && session.phone_number) {
                 // await WhatsAppService.sendMessage(session.phone_number, message);
             }

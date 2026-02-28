@@ -9,6 +9,7 @@ export async function createMatchAction(formData: FormData) {
     const times = formData.getAll('proposedTime') as string[];
     const duration = parseInt(formData.get('duration') as string || '90');
     const isRegular = formData.get('isRegular') === 'on' || formData.get('isRegular') === 'true';
+    const clubId = formData.get('clubId') as string;
 
     // Combine Date + Time into ISO-like string
     const combinedTimes = dates.map((date, i) => {
@@ -20,7 +21,11 @@ export async function createMatchAction(formData: FormData) {
         throw new Error('Se requiere al menos un horario completo (Fecha y Hora)');
     }
 
-    const match = await MatchService.createMatch(combinedTimes, duration, isRegular);
+    if (!clubId) {
+        throw new Error('No se ha proporcionado un Club ID.');
+    }
+
+    const match = await MatchService.createMatch(clubId, combinedTimes, duration, isRegular);
 
     if (match) {
         revalidatePath(`/match/${match.id}`);
