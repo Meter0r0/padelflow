@@ -68,7 +68,7 @@ export const ClientService = {
                 name,
                 address,
                 default_price: defaultPrice,
-                is_active: true
+                telegram_chat_id: 'PENDING_SETUP' // Bypass NOT NULL constraint until configured
             }])
             .select()
             .single();

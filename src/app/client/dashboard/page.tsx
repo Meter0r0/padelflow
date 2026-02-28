@@ -3,7 +3,13 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
-export default async function ClientDashboardPage() {
+interface Props {
+    searchParams: Promise<{ success?: string }>;
+}
+
+export default async function ClientDashboardPage({ searchParams }: Props) {
+    const { success } = await searchParams;
+
     // Determine the current client (for now, default to the first one)
     const client = await ClientService.getClient();
 
@@ -18,18 +24,24 @@ export default async function ClientDashboardPage() {
 
     const clubs = await ClientService.getClientClubs(client.id);
 
-    async function updateTokens(formData: FormData) {
+    async function updateTelegramToken(formData: FormData) {
         'use server';
         const clientId = formData.get('clientId') as string;
         await ClientService.updateClientTokens(clientId, {
             telegram_bot_token: formData.get('telegram_bot_token') as string,
+        });
+        redirect('/client/dashboard?success=telegram');
+    }
+
+    async function updateWhatsappTokens(formData: FormData) {
+        'use server';
+        const clientId = formData.get('clientId') as string;
+        await ClientService.updateClientTokens(clientId, {
             whatsapp_phone_number_id: formData.get('whatsapp_phone_number_id') as string,
             whatsapp_access_token: formData.get('whatsapp_access_token') as string,
             whatsapp_verify_token: formData.get('whatsapp_verify_token') as string,
         });
-
-        // Trigger a fake message to the AI or just show success
-        revalidatePath('/client/dashboard');
+        redirect('/client/dashboard?success=whatsapp');
     }
 
     async function handleCreateClub(formData: FormData) {
@@ -62,17 +74,41 @@ export default async function ClientDashboardPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '3rem' }}>
 
+                {success === 'telegram' && (
+                    <div style={{ background: '#38bdf820', border: '1px solid #38bdf8', color: '#38bdf8', padding: '1rem', borderRadius: '0.5rem', fontWeight: 600 }}>
+                        ✅ ¡Credenciales de Telegram actualizadas correctamente!
+                    </div>
+                )}
+
+                {success === 'whatsapp' && (
+                    <div style={{ background: '#22c55e20', border: '1px solid #22c55e', color: '#22c55e', padding: '1rem', borderRadius: '0.5rem', fontWeight: 600 }}>
+                        ✅ ¡Credenciales de WhatsApp actualizadas correctamente!
+                    </div>
+                )}
+
                 {/* 1. Bot Configuration */}
                 <section>
                     <h2 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.5rem' }}>
                         🤖 Configuración de Bots
                     </h2>
-                    <form action={updateTokens} className="card" style={{ margin: 0, padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        <input type="hidden" name="clientId" value={client.id} />
 
-                        <div>
-                            <h3 style={{ color: '#38bdf8', fontSize: '1.25rem', marginBottom: '1rem' }}>Telegram</h3>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
+                        {/* Telegram Form */}
+                        <form action={updateTelegramToken} className="card" style={{ margin: 0, padding: '2rem', borderTop: '4px solid #38bdf8' }}>
+                            <input type="hidden" name="clientId" value={client.id} />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                <h3 style={{ color: '#38bdf8', fontSize: '1.25rem', margin: 0 }}>Telegram</h3>
+                                {client.telegram_bot_token ? (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#22c55e', background: 'rgba(34, 197, 94, 0.15)', padding: '0.3rem 0.6rem', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '1rem' }}>
+                                        ✅ CONFIGURADO
+                                    </span>
+                                ) : (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', padding: '0.3rem 0.6rem', border: '1px solid rgba(251, 191, 36, 0.3)', borderRadius: '1rem' }}>
+                                        ⏳ PENDIENTE
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
                                 <label style={{ fontSize: '0.875rem', color: '#cbd5e1' }}>Bot Token</label>
                                 <input
                                     type="text"
@@ -83,13 +119,31 @@ export default async function ClientDashboardPage() {
                                 />
                                 <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Webhook URL: {`https://yourdomain.com/api/telegram/webhook/${client.id}`}</span>
                             </div>
-                        </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button type="submit" className="button button-primary" style={{ background: '#38bdf8', color: '#0f172a' }}>
+                                    Guardar Telegram
+                                </button>
+                            </div>
+                        </form>
 
-                        <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '0.5rem 0' }}></div>
+                        {/* WhatsApp Form */}
+                        <form action={updateWhatsappTokens} className="card" style={{ margin: 0, padding: '2rem', borderTop: '4px solid #22c55e' }}>
+                            <input type="hidden" name="clientId" value={client.id} />
 
-                        <div>
-                            <h3 style={{ color: '#22c55e', fontSize: '1.25rem', marginBottom: '1rem' }}>WhatsApp (Meta)</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                <h3 style={{ color: '#22c55e', fontSize: '1.25rem', margin: 0 }}>WhatsApp (Meta)</h3>
+                                {(client.whatsapp_phone_number_id && client.whatsapp_verify_token && client.whatsapp_access_token) ? (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#22c55e', background: 'rgba(34, 197, 94, 0.15)', padding: '0.3rem 0.6rem', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '1rem' }}>
+                                        ✅ CONFIGURADO
+                                    </span>
+                                ) : (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', padding: '0.3rem 0.6rem', border: '1px solid rgba(251, 191, 36, 0.3)', borderRadius: '1rem' }}>
+                                        ⏳ PENDIENTE / INCOMPLETO
+                                    </span>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                     <label style={{ fontSize: '0.875rem', color: '#cbd5e1' }}>Phone Number ID</label>
                                     <input
@@ -121,15 +175,14 @@ export default async function ClientDashboardPage() {
                                     />
                                 </div>
                             </div>
-                            <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginTop: '0.5rem' }}>Webhook URL: {`https://yourdomain.com/api/whatsapp/webhook/${client.id}`}</span>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
-                            <button type="submit" className="button button-primary">
-                                Guardar Credenciales
-                            </button>
-                        </div>
-                    </form>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: '1.5rem' }}>Webhook URL: {`https://yourdomain.com/api/whatsapp/webhook/${client.id}`}</span>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button type="submit" className="button button-primary" style={{ background: '#22c55e', color: 'white' }}>
+                                    Guardar WhatsApp
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </section>
 
                 {/* 2. Clubs Grid & Creation */}
