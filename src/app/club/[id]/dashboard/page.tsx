@@ -160,7 +160,7 @@ export default async function ClubDashboardPage({ params, searchParams }: Props)
             <div style={{ width: '100%', boxSizing: 'border-box' }}>
                 {/* Grilla Section */}
                 {activeFilter === 'grid' && (
-                    <section style={{ padding: '0 1rem' }}>
+                    <section style={{ padding: '0 1rem', width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
                         <ClubDateSelector defaultValue={selectedDate.toISOString().split('T')[0]} />
                         <ScheduleGrid
                             courts={courts}
