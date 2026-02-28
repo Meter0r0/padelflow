@@ -21,8 +21,19 @@ export interface Match {
     payment_proof_url?: string;
 }
 
+export interface Client {
+    id: string;
+    name: string;
+    telegram_bot_token?: string;
+    whatsapp_phone_number_id?: string;
+    whatsapp_access_token?: string;
+    whatsapp_verify_token?: string;
+    created_at?: string;
+}
+
 export interface Club {
     id: string;
+    client_id?: string; // Multi-tenant link
     name: string;
     address?: string;
     google_maps_url?: string; // New
@@ -69,4 +80,19 @@ export interface Reservation {
 export interface ReservationWithDetails extends Reservation {
     club?: Club;
     /* Optional joined fields */
+}
+
+export interface WhatsappSession {
+    id: string;
+    phone_number: string;
+    provider: string;
+    telegram_chat_id?: string;
+    user_name?: string;
+    current_state: string;
+    last_interaction: string;
+    created_at: string;
+    active_booking_id?: string;
+    user_data: Record<string, any>;
+    client_id?: string; // Multi-tenant link
+    club_id?: string; // Selected club
 }
