@@ -2,18 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AIService } from '@/services/ai';
 import { supabase } from '@/lib/supabase';
 
-// Verify Token for Meta Webhook Verification
-const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
-
-export async function GET(req: NextRequest) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ clientId: string }> }) {
+    const { clientId } = await params;
     const searchParams = req.nextUrl.searchParams;
     const mode = searchParams.get('hub.mode');
     const token = searchParams.get('hub.verify_token');
     const challenge = searchParams.get('hub.challenge');
 
     if (mode && token) {
+        // Fetch specific client verify token
+        const { data: client } = await supabase.from('clients').select('whatsapp_verify_token').eq('id', clientId).single();
+        const VERIFY_TOKEN = client?.whatsapp_verify_token;
+
         if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-            console.log('WEBHOOK_VERIFIED');
+            console.log(`WEBHOOK_VERIFIED for Client ${clientId}`);
             return new NextResponse(challenge, { status: 200 });
         } else {
             return new NextResponse(null, { status: 403 });
@@ -21,8 +23,9 @@ export async function GET(req: NextRequest) {
     }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ clientId: string }> }) {
     try {
+        const { clientId } = await params;
         const body = await req.json();
 
         // Check if this is a WhatsApp status update or message
@@ -38,38 +41,19 @@ export async function POST(req: NextRequest) {
                 const from = body.entry[0].changes[0].value.messages[0].from; // extract the phone number from the webhook payload
                 const msg_body = body.entry[0].changes[0].value.messages[0].text.body; // extract the message text from the webhook payload
 
-                console.log(`[Webhook] Message received from ${from}: ${msg_body}`);
+                console.log(`[Webhook] Message received from ${from} to Client ${clientId}: ${msg_body}`);
 
-                // Manage Session
-                const { data: session, error: sessionError } = await supabase
-                    .from('whatsapp_sessions')
-                    .select('*')
-                    .eq('phone_number', from)
-                    .single();
-
-                if (sessionError && sessionError.code !== 'PGRST116') {
-                    console.error('[Webhook] Error fetching session:', sessionError);
+                // Fetch the client to ensure it exists and has credentials (we'll need the token to reply via WhatsAppService later)
+                const { data: client } = await supabase.from('clients').select('id').eq('id', clientId).single();
+                if (!client) {
+                    console.error('[WhatsApp Webhook] Unknown Client:', clientId);
+                    return new NextResponse(null, { status: 404 });
                 }
 
-                if (session) {
-                    await supabase
-                        .from('whatsapp_sessions')
-                        .update({ last_interaction: new Date().toISOString() })
-                        .eq('id', session.id);
-                    console.log(`[Webhook] Session updated for ${from}`);
-                } else {
-                    await supabase
-                        .from('whatsapp_sessions')
-                        .insert({
-                            phone_number: from,
-                            current_state: 'IDLE',
-                            last_interaction: new Date().toISOString(),
-                        });
-                    console.log(`[Webhook] New session created for ${from}`);
-                }
-
-                // Process with AI Service
-                await AIService.processMessage(from, msg_body);
+                // Process with AI Service directly 
+                // Session creation and state management is now securely handled inside AIService
+                const { AIService } = await import('@/services/ai');
+                await AIService.processMessage(from, msg_body, 'whatsapp', '', clientId);
 
                 // Here you would typically send the reply back using the WhatsApp Cloud API
                 // For now, the AI Service generates the reply but we need a 'WhatsAppService' to send it.

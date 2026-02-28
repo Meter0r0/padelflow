@@ -5,12 +5,13 @@ import { TelegramService } from './telegram';
 export const MatchService = {
     // --- PLAYER METHODS ---
 
-    async createMatch(options: string[], durationMinutes: number = 90, isRegular: boolean = false): Promise<Match | null> {
-        console.log('[MatchService.createMatch] Iniciando creación:', { options, durationMinutes, isRegular });
+    async createMatch(clubId: string, options: string[], durationMinutes: number = 90, isRegular: boolean = false): Promise<Match | null> {
+        console.log('[MatchService.createMatch] Iniciando creación:', { clubId, options, durationMinutes, isRegular });
         const { data, error } = await supabase
             .from('matches')
             .insert([
                 {
+                    club_id: clubId,
                     proposed_time: options[0],
                     options: options,
                     duration_minutes: durationMinutes,
@@ -623,7 +624,7 @@ export const MatchService = {
                     confirmed_option: null,
                     court_status: 'none',
                     court_details: null,
-                    club_id: null
+                    club_id: null // Clear club_id to make it a sterile recycled match
                 })
                 .eq('id', matchId);
 
@@ -671,10 +672,11 @@ export const MatchService = {
     },
 
     /**
-     * Get availability for a specific date.
-     * Returns a rough list of occupied slots for now.
+     * Gets available 90-minute slots for all active courts of a specific club on a given date.
+     * Checks overlapping with existing 'reserved' matches.
      */
-    async getAvailability(dateStr: string): Promise<string> {
+    async getAvailability(dateStr: string, clubId: string): Promise<string> {
+        if (!dateStr || !clubId) return "Necesito saber la fecha y el club para consultar.";
         // Force Argentina Time for parsing the date string
         const d = new Date(dateStr + 'T12:00:00-03:00');
 
@@ -682,6 +684,7 @@ export const MatchService = {
         const { data: matches } = await supabase
             .from('matches')
             .select('proposed_time, confirmed_option, duration_minutes, status, court_status, court_details, is_regular')
+            .eq('club_id', clubId) // Added clubId filter
             .or(`status.in.("confirmed","pending"),court_status.eq.reserved`);
 
         const getArDate = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
@@ -701,7 +704,9 @@ export const MatchService = {
         });
 
         // 2. Get club opening hours
-        const { data: club } = await supabase.from('clubs').select('opening_hours').limit(1).maybeSingle();
+        const { data: club } = await supabase.from('clubs').select('opening_hours').eq('id', clubId).single();
+        if (!club) return "Club no encontrado.";
+
         const dayOfWeek = d.getDay().toString();
         const dayConfig = (club?.opening_hours as any)?.[dayOfWeek] || { open: '18:00', close: '23:00', closed: false };
 
@@ -709,9 +714,9 @@ export const MatchService = {
             return `El club está CERRADO el día ${dateStr}. No se pueden realizar reservas.`;
         }
 
-        // 3. Get all ACTIVE courts
-        const { data: courts } = await supabase.from('courts').select('*').eq('is_active', true).order('name');
-        if (!courts || courts.length === 0) return "No hay canchas configuradas en el club.";
+        // 3. Get all ACTIVE courts for this club
+        const { data: courts } = await supabase.from('courts').select('*').eq('club_id', clubId).eq('is_active', true).order('name');
+        if (!courts || courts.length === 0) return "No hay canchas configuradas en este club.";
 
         // 4. Calculate available 90-min slots for each court
         const results = courts.map(court => {
@@ -760,16 +765,17 @@ export const MatchService = {
     /**
      * Checks if a court is available for a given time and duration.
      */
-    async isCourtAvailable(courtName: string, time: string, durationMinutes: number): Promise<boolean> {
+    async isCourtAvailable(clubId: string, courtName: string, time: string, durationMinutes: number): Promise<boolean> {
         const startTime = new Date(time);
         const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
         const courtLower = courtName.trim().toLowerCase();
 
-        // Query potentially overlapping matches
+        // Query potentially overlapping matches assigned to this club
         // We look for any match in status 'confirmed' or 'pending' assigned to this court
         const { data: matches } = await supabase
             .from('matches')
             .select('id, confirmed_option, proposed_time, duration_minutes, is_regular, status, court_status')
+            .eq('club_id', clubId)
             .or(`status.in.("confirmed","pending"),court_status.eq.reserved`)
             .ilike('court_details', `%${courtName.trim()}%`);
 

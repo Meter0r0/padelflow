@@ -1,10 +1,13 @@
-
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+import { supabase } from '@/lib/supabase';
 
 export const TelegramService = {
-    async sendMessage(chatId: string, text: string, replyMarkup?: any) {
+    async sendMessage(clientId: string, chatId: string, text: string, replyMarkup?: any) {
+
+        const { data: client } = await supabase.from('clients').select('telegram_bot_token').eq('id', clientId).single();
+        const TELEGRAM_BOT_TOKEN = client?.telegram_bot_token;
+
         if (!TELEGRAM_BOT_TOKEN) {
-            console.error('TELEGRAM_BOT_TOKEN no configurado');
+            console.error(`Telegram Bot Token no configurado para cliente ${clientId}`);
             return null;
         }
 
@@ -33,7 +36,7 @@ export const TelegramService = {
         }
     },
 
-    async notifyClubMatchConfirmed(clubTelegramId: string, matchId: string, time: string, duration: number) {
+    async notifyClubMatchConfirmed(clientId: string, clubTelegramId: string, matchId: string, time: string, duration: number) {
         const formattedTime = new Date(time).toLocaleString('es-AR', {
             weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false
         });
@@ -60,6 +63,6 @@ Un nuevo partido de PadelFlow requiere cancha:
             ]
         };
 
-        return this.sendMessage(clubTelegramId, text, replyMarkup);
+        return this.sendMessage(clientId, clubTelegramId, text, replyMarkup);
     }
 };

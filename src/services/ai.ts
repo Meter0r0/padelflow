@@ -11,14 +11,19 @@ if (!apiKey) {
 const genAI = new GoogleGenerativeAI(apiKey || 'dummy_key_to_avoid_crash');
 
 export const AIService = {
-    async processMessage(contactId: string, messageBody: string, provider: 'whatsapp' | 'telegram' = 'whatsapp', userName?: string) {
-        console.log(`[AIService] Processing message from ${contactId} (${provider}): ${messageBody}`);
+    async processMessage(contactId: string, messageBody: string, provider: 'whatsapp' | 'telegram' = 'whatsapp', userName?: string, clientId?: string) {
+        console.log(`[AIService] Processing message from ${contactId} (${provider}) for Client ${clientId}: ${messageBody}`);
 
         try {
             // 1. Get/Create Session
-            let session = await this.getSession(contactId, provider);
+            let session = await this.getSession(contactId, provider, clientId);
             if (!session) {
-                session = await this.createSession(contactId, provider, userName);
+                // We MUST have a clientId to create a valid multi-tenant session
+                if (!clientId) {
+                    console.error('[AIService] Cannot create new session without clientId');
+                    return "El sistema se está actualizando. Por favor intenta más tarde.";
+                }
+                session = await this.createSession(contactId, provider, clientId, userName);
             } else {
                 // Update user_name if provided and not present
                 if (userName && !session.user_name) {
@@ -61,7 +66,7 @@ export const AIService = {
                     const errorReply = actionError.message || "Lo siento, hubo un problema al procesar tu solicitud. ¿Podrías intentar de nuevo?";
 
                     if (provider === 'telegram') {
-                        await TelegramService.sendMessage(contactId, errorReply);
+                        if (clientId) await TelegramService.sendMessage(clientId, contactId, errorReply);
                     }
                     return errorReply;
                 }
@@ -92,7 +97,7 @@ export const AIService = {
 
             // 8. Send Response via appropriate provider
             if (provider === 'telegram') {
-                await TelegramService.sendMessage(contactId, replyText);
+                if (clientId) await TelegramService.sendMessage(clientId, contactId, replyText);
             } else {
                 return replyText;
             }
@@ -102,13 +107,13 @@ export const AIService = {
             console.error('[AIService] Global processing error:', globalError);
             const fallback = "Tuve un error procesando tu mensaje por un problema técnico. ¿Podés intentar de nuevo?";
             if (provider === 'telegram') {
-                await TelegramService.sendMessage(contactId, fallback);
+                if (clientId) await TelegramService.sendMessage(clientId, contactId, fallback);
             }
             return fallback;
         }
     },
 
-    async getSession(contactId: string, provider: 'whatsapp' | 'telegram') {
+    async getSession(contactId: string, provider: 'whatsapp' | 'telegram', clientId?: string) {
         let query = supabase.from('whatsapp_sessions').select('*, user_data');
 
         if (provider === 'telegram') {
@@ -117,14 +122,19 @@ export const AIService = {
             query = query.eq('phone_number', contactId).eq('provider', 'whatsapp');
         }
 
+        if (clientId) {
+            query = query.eq('client_id', clientId);
+        }
+
         const { data } = await query.single();
         return data;
     },
 
-    async createSession(contactId: string, provider: 'whatsapp' | 'telegram', userName?: string) {
+    async createSession(contactId: string, provider: 'whatsapp' | 'telegram', clientId: string, userName?: string) {
         const payload: any = {
             current_state: 'IDLE',
             provider: provider,
+            client_id: clientId,
             user_name: userName // Pre-fill name if available (e.g. from Telegram profile)
         };
 
@@ -233,40 +243,61 @@ export const AIService = {
 
         // If IDLE or MATCHING or CONFIRMED, get availabilities and club info
         if (session.current_state === 'IDLE' || session.current_state === 'MATCHING' || context.active_booking?.status === 'confirmed') {
-            // 1. Fetch Club Info first (now with opening_hours)
-            const { data: club } = await supabase.from('clubs').select('id, name, address, alias, cbu, bank_name, account_holder, opening_hours, deposit_percentage').limit(1).maybeSingle();
-
-            let courts: any[] = [];
-            if (club) {
-                const { data: clubCourts } = await supabase.from('courts').select('name, type, price, is_active').eq('club_id', club.id).eq('is_active', true);
-                if (clubCourts) courts = clubCourts;
-
-                context.club_info = {
-                    name: club.name || 'Padel Club',
-                    address: club.address || 'Calle Falsa 123',
-                    courts: courts,
-                    opening_hours: club.opening_hours,
-                    deposit_percentage: club.deposit_percentage || 30
-                };
+            // 1. Fetch Club Info based on session.client_id and optional session.club_id
+            let query = supabase.from('clubs').select('id, name, address, alias, cbu, bank_name, account_holder, opening_hours, deposit_percentage').eq('client_id', session.client_id);
+            if (session.club_id) {
+                query = query.eq('id', session.club_id);
             }
 
-            // 2. Availability for context date
-            const availability = await MatchService.getAvailability(context.context_date);
-            context.availability_info = `Disponibilidad para el día ${context.context_date_display}: ${availability}`;
+            const { data: clubs } = await query;
+            const clubList = clubs || [];
+
+            // If a specific club is selected (or there is only one), we provide its extended info
+            // Otherwise, we provide the list of clubs for the user to choose from
+            const activeClub = session.club_id ? clubList.find(c => c.id === session.club_id) : (clubList.length === 1 ? clubList[0] : null);
+
+            context.client_clubs = clubList.map(c => ({ id: c.id, name: c.name, address: c.address }));
+
+            if (activeClub) {
+                const { data: clubCourts } = await supabase.from('courts').select('name, type, price, is_active').eq('club_id', activeClub.id).eq('is_active', true);
+
+                context.club_info = {
+                    id: activeClub.id,
+                    name: activeClub.name || 'Padel Club',
+                    address: activeClub.address || 'Calle Falsa 123',
+                    courts: clubCourts || [],
+                    opening_hours: activeClub.opening_hours,
+                    deposit_percentage: activeClub.deposit_percentage || 30
+                };
+
+                // Availability is now scoped to the active club
+                context.availability_info = `Disponibilidad para el día ${context.context_date_display}: ${await MatchService.getAvailability(context.context_date, activeClub.id)}`;
+            } else {
+                context.club_info = null;
+                context.availability_info = "Primero debe seleccionar una sede.";
+            }
 
             // 3. Dynamic Business Hours based on context date — MUST use AR-TZ safe helper
-            const dayOfWeek = getDayOfWeekAR(context.context_date).toString();
-            const dayConfig = (club?.opening_hours as any)?.[dayOfWeek] || { open: '18:00', close: '23:00', closed: false };
-            context.business_hours = dayConfig.closed
-                ? `El club está CERRADO el día ${context.context_date_display}.`
-                : `Horario del club para el día ${context.context_date_display}: ${dayConfig.open} a ${dayConfig.close} hs.`;
+            if (activeClub) {
+                const dayOfWeek = getDayOfWeekAR(context.context_date).toString();
+                const dayConfig = (activeClub.opening_hours as any)?.[dayOfWeek] || { open: '18:00', close: '23:00', closed: false };
+                context.business_hours = dayConfig.closed
+                    ? `El club está CERRADO el día ${context.context_date_display}.`
+                    : `Horario del club para el día ${context.context_date_display}: ${dayConfig.open} a ${dayConfig.close} hs.`;
 
-            context.banking_info = {
-                alias: club?.alias || 'PADEL.FLOW.MP (Default)',
-                cbu: club?.cbu,
-                bank: club?.bank_name || 'Mercado Pago',
-                holder: club?.account_holder
-            };
+                context.banking_info = {
+                    alias: activeClub.alias || 'PADEL.FLOW.MP (Default)',
+                    cbu: activeClub.cbu,
+                    bank: activeClub.bank_name || 'Mercado Pago',
+                    holder: activeClub.account_holder
+                };
+            }
+        }
+
+        // If SELECTING_CLUB is the current state
+        if (session.current_state === 'SELECTING_CLUB') {
+            const { data: clubs } = await supabase.from('clubs').select('id, name').eq('client_id', session.client_id);
+            context.client_clubs = clubs || [];
         }
 
         return context;
@@ -364,7 +395,7 @@ export const AIService = {
 
     async generateAIResponse(message: string, context: any, history: any[] = []) {
         const systemPrompt = `
-Eres el "Coordinador de PadelFlow", el asistente virtual oficial del club **${context.club_info?.name || 'nuestro club'}**. 
+Eres el asistente virtual oficial de reservas para **${context.club_info?.name || 'nuestro cliente'}**. 
 TU ÚNICO PROPÓSITO Y RESPONSABILIDAD es gestionar las reservas de canchas de pádel con los clientes.
 
 REGLAS DE COMPORTAMIENTO ESTRICTAS:
@@ -398,7 +429,17 @@ REGLA ANTI-BLOQUEO (CRÍTICA - LEÉ ESTO PRIMERO):
 - Si tenés fecha + hora + duración, revisá 'availability_info' ahora mismo y respondé en este mismo mensaje con lo que encontraste.
 
 FLUJO DE TRABAJO:
-1. CONSULTA/IDLE:
+
+0. SELECCIÓN DE SEDE (SELECTING_CLUB):
+   - Si el estado es SELECTING_CLUB, tenés un listado de sucursales en 'client_clubs'.
+   - Aún NO tenés 'availability_info' porque el usuario debe elegir sede.
+   - Preguntá amablemente en qué sede de las disponibles quiere jugar.
+   - Una vez que confirme una de las sedes, ejecutá la Acción 'SELECT_CLUB'.
+     action_params.club_id debe ser el ID de la sede elegida de 'client_clubs'.
+     next_state: 'IDLE'.
+   - REGLA: Si el usuario ya te dijo qué sede quiere en su saludo, seleccionála directamente.
+
+1. CONSULTA/IDLE (Ya con sede seleccionada):
    - Si pregunta DISPONIBILIDAD: Usá 'availability_info' e informá TODAS las opciones libres de forma clara. Mencioná cada cancha y sus huecos.
 2. MATCHING (Reservando):
    - Paso 1: Obtené FECHA y HORA.
@@ -477,9 +518,10 @@ ${JSON.stringify(context, null, 2)}
 SALIDA ESPERADA (JSON):
 {
     "reply": "Texto plano de respuesta",
-    "next_state": "IDLE | MATCHING | AWAITING_PAYMENT | MATCH_JOIN | CONFIRMED",
-    "action": "CREATE_BOOKING | REGISTER_IDENTITY | CANCEL_BOOKING | NONE",
+    "next_state": "SELECTING_CLUB | IDLE | MATCHING | AWAITING_PAYMENT | MATCH_JOIN | CONFIRMED",
+    "action": "SELECT_CLUB | CREATE_BOOKING | REGISTER_IDENTITY | CANCEL_BOOKING | NONE",
     "action_params": {
+        "club_id": "UUID (Solo para SELECT_CLUB)",
         "date_time": "ISO_LOCAL_STRING",
         "duration_minutes": number,
         "court_name": "Nombre EXACTO",
@@ -520,6 +562,16 @@ SALIDA ESPERADA (JSON):
 
     async executeAction(action: string, session: any, params: any) {
         console.log(`[AIService] Executing action: ${action} `, params);
+
+        if (action === 'SELECT_CLUB') {
+            const updateData: any = { club_id: params.club_id, current_state: 'IDLE' };
+            await supabase
+                .from('whatsapp_sessions')
+                .update(updateData)
+                .eq('id', session.id);
+            console.log(`[AIService] Sede seleccionada: `, params.club_id);
+            session.club_id = params.club_id;
+        }
 
         if (action === 'REGISTER_IDENTITY') {
             const updateData: any = {};
@@ -648,14 +700,15 @@ SALIDA ESPERADA (JSON):
                 courtName = firstCourt?.name || 'Cancha a designar';
             }
 
-            const isAvailable = await MatchService.isCourtAvailable(courtName, targetDateTime, duration);
+            const isAvailable = await MatchService.isCourtAvailable(clubId, courtName, targetDateTime, duration);
 
             if (!isAvailable) {
                 console.warn(`[AIService] DOUBLE BOOKING DETECTED for ${courtName} at ${targetDateTime} `);
                 throw new Error(`¡Ups! La ${courtName} ya está ocupada para las ${targetDateTime.split('T')[1].substring(0, 5)} hs.Por favor elegí otro horario o cancha.`);
             }
 
-            const match = await MatchService.createMatch([targetDateTime], duration, false);
+            const match = await MatchService.createMatch(session.club_id, params.options || [targetDateTime], duration);
+            if (!match) throw new Error("No se pudo crear el partido.");
             if (match) {
                 // IMPORTANT: Calculate total price based on duration
                 const totalPrice = (basePrice * duration) / 60;

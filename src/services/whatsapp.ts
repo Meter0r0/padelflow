@@ -1,12 +1,18 @@
 import { supabase } from '@/lib/supabase';
 
 export const WhatsAppService = {
-    async sendMessage(to: string, text: string) {
-        const phone_number_id = process.env.WHATSAPP_PHONE_NUMBER_ID;
-        const access_token = process.env.WHATSAPP_ACCESS_TOKEN;
+    async sendMessage(clientId: string, to: string, text: string) {
+
+        const { data: client } = await supabase.from('clients')
+            .select('whatsapp_phone_number_id, whatsapp_access_token')
+            .eq('id', clientId)
+            .single();
+
+        const phone_number_id = client?.whatsapp_phone_number_id;
+        const access_token = client?.whatsapp_access_token;
 
         if (!phone_number_id || !access_token) {
-            console.warn('[WhatsAppService] Missing credentials. Message not sent:', { to, text });
+            console.warn(`[WhatsAppService] Missing credentials for Client ${clientId}. Message not sent:`, { to, text });
             return;
         }
 
