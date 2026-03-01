@@ -1,8 +1,11 @@
 import { MatchService } from '@/services/match';
+import { AdminService } from '@/services/admin';
 import Link from 'next/link';
+import { revalidatePath } from 'next/cache';
 
 export default async function AdminDashboardPage() {
     const { matches, clubs } = await MatchService.getAdminDashboard();
+    const clients = await AdminService.getClientsWithStats();
 
     const now = new Date();
 
@@ -12,8 +15,28 @@ export default async function AdminDashboardPage() {
         confirmed: matches.filter(m => m.status === 'confirmed').length,
         cancelled: matches.filter(m => m.status === 'cancelled').length,
         played: matches.filter(m => m.status === 'confirmed' && m.confirmed_option && new Date(m.confirmed_option) < now).length,
-        totalClubs: clubs.length
+        totalClubs: clubs.length,
+        totalClients: clients.length
     };
+
+    async function handleCreateClient(formData: FormData) {
+        'use server';
+        const name = formData.get('name') as string;
+        if (name) {
+            await AdminService.createClient(name);
+            revalidatePath('/admin/dashboard');
+        }
+    }
+
+    async function handleDeleteClient(formData: FormData) {
+        'use server';
+        const clientId = formData.get('clientId') as string;
+        const client = clients.find(c => c.id === clientId);
+        if (client && client.clubs_count === 0) {
+            await AdminService.deleteClient(clientId);
+            revalidatePath('/admin/dashboard');
+        }
+    }
 
     return (
         <main className="container">
@@ -48,9 +71,73 @@ export default async function AdminDashboardPage() {
                     <div style={{ fontSize: '2rem', fontWeight: 900, color: 'white' }}>{stats.totalClubs}</div>
                     <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Clubes</div>
                 </div>
+                <div className="card" style={{ margin: 0, padding: '1.25rem', textAlign: 'center', borderTop: '4px solid #f43f5e' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 900, color: 'white' }}>{stats.totalClients}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Clientes</div>
+                </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '3rem' }}>
+
+                {/* Clients Section */}
+                <section>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                        <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.5rem' }}>
+                            🤝 Clientes SaaS ({stats.totalClients})
+                        </h2>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                        {clients.map((client) => (
+                            <div key={client.id} className="card" style={{ margin: 0, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', borderTop: '3px solid #f43f5e' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div>
+                                        <h3 style={{ margin: '0 0 0.5rem 0', color: 'white', fontSize: '1.25rem' }}>{client.name}</h3>
+                                        <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.875rem' }}>ID: {client.id.slice(0, 8)}</p>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        <form action={handleDeleteClient}>
+                                            <input type="hidden" name="clientId" value={client.id} />
+                                            {client.clubs_count === 0 ? (
+                                                <button type="submit" style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }} title="Borrar Cliente">
+                                                    🗑️ Borrar
+                                                </button>
+                                            ) : (
+                                                <span style={{ fontSize: '0.75rem', color: '#64748b' }} title="No se puede borrar porque tiene sucursales">No borrable</span>
+                                            )}
+                                        </form>
+                                    </div>
+                                </div>
+                                
+                                <div style={{ display: 'flex', gap: '1rem', fontSize: '0.875rem', color: '#cbd5e1' }}>
+                                    <div style={{ background: 'rgba(255,255,255,0.05)', padding: '0.5rem 1rem', borderRadius: '0.5rem' }}>
+                                        <strong>{client.clubs_count}</strong> Sucursales
+                                    </div>
+                                    <div style={{ background: 'rgba(255,255,255,0.05)', padding: '0.5rem 1rem', borderRadius: '0.5rem' }}>
+                                        🤖 {client.telegram_bot_token || client.whatsapp_access_token ? 'Bots Activos' : 'Sin Bots'}
+                                    </div>
+                                </div>
+                                
+                                <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <Link href={`/client/dashboard?simulate_client=${client.id}`} className="button button-primary" style={{ display: 'block', textAlign: 'center', width: '100%', background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)' }}>
+                                        Ir al Panel de Cliente →
+                                    </Link>
+                                </div>
+                            </div>
+                        ))}
+
+                        {/* Add Client Form */}
+                        <form action={handleCreateClient} className="card" style={{ margin: 0, padding: '1.5rem', border: '1px dashed rgba(244, 63, 94, 0.4)', background: 'rgba(244, 63, 94, 0.02)' }}>
+                            <h3 style={{ margin: '0 0 1rem 0', color: '#f43f5e', fontSize: '1.125rem' }}>Crear Nuevo Cliente</h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                <input type="text" name="name" required placeholder="Nombre Comercial (obligatorio)" style={{ width: '100%', padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.5)', color: 'white' }} />
+                                <button type="submit" className="button button-primary" style={{ width: '100%', padding: '0.5rem', background: '#f43f5e', color: 'white' }}>
+                                    + Crear Cliente
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </section>
 
                 {/* Matches Table */}
                 <section>

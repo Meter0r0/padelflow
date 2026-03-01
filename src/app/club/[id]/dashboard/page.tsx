@@ -40,6 +40,18 @@ export default async function ClubDashboardPage({ params, searchParams }: Props)
 
             {/* Header y Filtros (Restringidos a 600px) */}
             <div style={{ width: '100%', maxWidth: '600px', padding: '0 1rem', boxSizing: 'border-box' }}>
+                <Link href={`/client/dashboard`} style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    fontSize: '0.875rem',
+                    color: '#94a3b8',
+                    textDecoration: 'none',
+                    marginBottom: '1rem',
+                    fontWeight: 600
+                }}>
+                    ⬅️ Volver al Panel de Cliente
+                </Link>
                 <div style={{ marginBottom: '2.5rem', textAlign: 'left' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '0.5rem' }}>
                         <div>
@@ -72,6 +84,7 @@ export default async function ClubDashboardPage({ params, searchParams }: Props)
                     marginBottom: '2rem',
                     overflowX: 'auto',
                     paddingBottom: '0.75rem',
+                    justifyContent: 'center',
                     msOverflowStyle: 'none',
                     scrollbarWidth: 'none',
                     WebkitOverflowScrolling: 'touch'

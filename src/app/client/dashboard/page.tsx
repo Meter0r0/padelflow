@@ -4,14 +4,14 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
 interface Props {
-    searchParams: Promise<{ success?: string }>;
+    searchParams: Promise<{ success?: string; simulate_client?: string }>;
 }
 
 export default async function ClientDashboardPage({ searchParams }: Props) {
-    const { success } = await searchParams;
+    const { success, simulate_client } = await searchParams;
 
     // Determine the current client (for now, default to the first one)
-    const client = await ClientService.getClient();
+    const client = await ClientService.getClient(simulate_client);
 
     if (!client) {
         return (
@@ -30,7 +30,7 @@ export default async function ClientDashboardPage({ searchParams }: Props) {
         await ClientService.updateClientTokens(clientId, {
             telegram_bot_token: formData.get('telegram_bot_token') as string,
         });
-        redirect('/client/dashboard?success=telegram');
+        redirect(`/client/dashboard?success=telegram&simulate_client=${clientId}`);
     }
 
     async function updateWhatsappTokens(formData: FormData) {
@@ -41,7 +41,7 @@ export default async function ClientDashboardPage({ searchParams }: Props) {
             whatsapp_access_token: formData.get('whatsapp_access_token') as string,
             whatsapp_verify_token: formData.get('whatsapp_verify_token') as string,
         });
-        redirect('/client/dashboard?success=whatsapp');
+        redirect(`/client/dashboard?success=whatsapp&simulate_client=${clientId}`);
     }
 
     async function handleCreateClub(formData: FormData) {
@@ -53,7 +53,7 @@ export default async function ClientDashboardPage({ searchParams }: Props) {
 
         if (name && defaultPrice) {
             await ClientService.createClub(clientId, name, address, defaultPrice);
-            revalidatePath('/client/dashboard');
+            redirect(`/client/dashboard?simulate_client=${clientId}`);
         }
     }
 
