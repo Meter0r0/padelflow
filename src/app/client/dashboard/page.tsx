@@ -2,6 +2,7 @@ import { ClientService } from '@/services/client';
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import TelegramConfigClient from '@/components/TelegramConfigClient';
 
 interface Props {
     searchParams: Promise<{ success?: string; simulate_client?: string }>;
@@ -108,17 +109,9 @@ export default async function ClientDashboardPage({ searchParams }: Props) {
                                     </span>
                                 )}
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
-                                <label style={{ fontSize: '0.875rem', color: '#cbd5e1' }}>Bot Token</label>
-                                <input
-                                    type="text"
-                                    name="telegram_bot_token"
-                                    defaultValue={client.telegram_bot_token || ''}
-                                    placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz..."
-                                    style={{ width: '100%', padding: '0.75rem', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.5)', color: 'white' }}
-                                />
-                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Webhook URL: {`https://yourdomain.com/api/telegram/webhook/${client.id}`}</span>
-                            </div>
+                            
+                            <TelegramConfigClient clientId={client.id} initialToken={client.telegram_bot_token} />
+
                             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                                 <button type="submit" className="button button-primary" style={{ background: '#38bdf8', color: '#0f172a' }}>
                                     Guardar Telegram
