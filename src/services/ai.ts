@@ -36,6 +36,22 @@ export const AIService = {
             const userData = session.user_data || {};
             const history = userData.history || [];
 
+            // 2b. Global Reset Commands
+            const lowerMessage = messageBody.trim().toLowerCase();
+            if (['chau', 'reiniciar', 'reset', 'cancelar', 'salir'].includes(lowerMessage)) {
+                await supabase.from('whatsapp_sessions').update({ 
+                    current_state: 'IDLE', 
+                    club_id: null, 
+                    user_data: {} 
+                }).eq('id', session.id);
+                
+                const replyText = "¡Sesión reiniciada! 👋 Escribime 'Hola' cuando quieras volver a empezar.";
+                if (provider === 'telegram') {
+                    if (clientId) await TelegramService.sendMessage(clientId, contactId, replyText);
+                }
+                return replyText;
+            }
+
             // 3. Extract potential date from message to shift context
             let targetDate = this.extractDateFromMessage(messageBody);
 
