@@ -47,6 +47,18 @@ export const AIService = {
                 targetDate = userData.current_target_date;
             }
 
+            // 3b. Intercept multi-club selection if missing
+            if (!session.club_id && session.current_state === 'IDLE') {
+                const { count } = await supabase.from('clubs')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('client_id', clientId);
+                    
+                if (count && count > 1) {
+                    session.current_state = 'SELECTING_CLUB';
+                    await supabase.from('whatsapp_sessions').update({ current_state: 'SELECTING_CLUB' }).eq('id', session.id);
+                }
+            }
+
             // 4. Build Context
             const context = await this.buildContext(session, targetDate);
 
@@ -592,8 +604,12 @@ SALIDA ESPERADA (JSON):
             // 1. Calculate final amount based on club settings and court price
             let clubIdForPrice = session.club_id;
             if (!clubIdForPrice) {
-                const { data: club } = await supabase.from('clubs').select('id').limit(1).maybeSingle();
-                if (club) clubIdForPrice = club.id;
+                const { data: club } = await supabase.from('clubs').select('id').eq('client_id', session.client_id).limit(1).maybeSingle();
+                if (club) {
+                    clubIdForPrice = club.id;
+                    session.club_id = club.id;
+                    await supabase.from('whatsapp_sessions').update({ club_id: club.id }).eq('id', session.id);
+                }
             }
 
             let basePrice = 16000;
