@@ -109,8 +109,11 @@ export default async function ClientDashboardPage({ searchParams }: Props) {
                                     </span>
                                 )}
                             </div>
-                            
-                            <TelegramConfigClient clientId={client.id} initialToken={client.telegram_bot_token} />
+                            <TelegramConfigClient 
+                                key={`telegram-${client.telegram_bot_token || 'empty'}`} 
+                                clientId={client.id} 
+                                initialToken={client.telegram_bot_token} 
+                            />
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                                 <button type="submit" className="button button-primary" style={{ background: '#38bdf8', color: '#0f172a' }}>

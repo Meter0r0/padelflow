@@ -15,6 +15,10 @@ export default function TelegramConfigClient({ clientId, initialToken }: Telegra
         setOrigin(window.location.origin);
     }, []);
 
+    useEffect(() => {
+        setToken(initialToken || '');
+    }, [initialToken]);
+
     const webhookUrl = `${origin}/api/telegram/webhook/${clientId}`;
     const registrationUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
 
