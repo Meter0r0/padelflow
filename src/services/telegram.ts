@@ -3,7 +3,8 @@ import { supabase } from '@/lib/supabase';
 export const TelegramService = {
     async sendMessage(clientId: string, chatId: string, text: string, replyMarkup?: any) {
 
-        const { data: client } = await supabase.from('clients').select('telegram_bot_token').eq('id', clientId).single();
+        const { data: client, error } = await supabase.from('clients').select('telegram_bot_token').eq('id', clientId).single();
+        console.log(`[TelegramService DB Debug] fetch token for ${clientId} result:`, client, "error:", error);
         const TELEGRAM_BOT_TOKEN = client?.telegram_bot_token;
 
         if (!TELEGRAM_BOT_TOKEN) {

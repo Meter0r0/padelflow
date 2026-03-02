@@ -74,6 +74,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cli
 
             // Delegate to AI Service, now passing the clientId
             const { AIService } = await import('@/services/ai'); // Dynamic import to avoid circular dep issues if any
+            
+            // IMPORTANT: In Vercel Serverless we MUST await this fully before returning, otherwise the process is killed midway.
             await AIService.processMessage(chatId, text, 'telegram', userName, clientId);
         }
 
