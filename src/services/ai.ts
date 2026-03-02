@@ -526,13 +526,15 @@ FLUJO DE TRABAJO:
    - next_state: 'MATCH_JOIN'.
 
 5. CONFIRMED:
-   - Generá un resumen para compartir:
+   - El usuario ya tiene su reserva asegurada.
+   - Si saluda o hace una consulta genérica, mandale este resumen amigable:
      "✅ *RESERVA CONFIRMADA* ✅
       🏠 *Club:* ${context.club_info?.name || 'Padel Club'}
       📅 *Fecha:* [Día] DD/MM
       ⏰ *Hora:* HH:mm hs
       🎾 *Cancha:* ${context.active_booking?.court_status || ''}
       ¡Nos vemos!"
+   - REGLA ESTRICTA: NUNCA sugieras ni envíes otros horarios ni canchas disponibles. La reserva ya está terminada. Solo respondé dudas, mostrá el resumen o procesá cancelaciones si lo piden.
 
 6. CANCELACIÓN:
    - Si el usuario quiere CANCELAR su reserva, pedile que confirme escribiendo "SÍ" o "CONFIRMAR".
