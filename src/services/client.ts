@@ -61,6 +61,8 @@ export const ClientService = {
      * Create a new club for this client
      */
     async createClub(clientId: string, name: string, address: string, defaultPrice: number): Promise<Club | null> {
+        const uniquePlaceholder = `PENDING_SETUP_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`;
+        
         const { data, error } = await supabase
             .from('clubs')
             .insert([{
@@ -68,7 +70,7 @@ export const ClientService = {
                 name,
                 address,
                 default_price: defaultPrice,
-                telegram_chat_id: 'PENDING_SETUP' // Bypass NOT NULL constraint until configured
+                telegram_chat_id: uniquePlaceholder // Bypass NOT NULL and UNIQUE constraint until configured
             }])
             .select()
             .single();
