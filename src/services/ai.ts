@@ -39,12 +39,12 @@ export const AIService = {
             // 2b. Global Reset Commands
             const lowerMessage = messageBody.trim().toLowerCase();
             if (['chau', 'reiniciar', 'reset', 'cancelar', 'salir'].includes(lowerMessage)) {
-                await supabase.from('whatsapp_sessions').update({ 
-                    current_state: 'IDLE', 
-                    club_id: null, 
-                    user_data: {} 
+                await supabase.from('whatsapp_sessions').update({
+                    current_state: 'IDLE',
+                    club_id: null,
+                    user_data: {}
                 }).eq('id', session.id);
-                
+
                 const replyText = "¡Sesión reiniciada! 👋 Escribime 'Hola' cuando quieras volver a empezar.";
                 if (provider === 'telegram') {
                     if (clientId) await TelegramService.sendMessage(clientId, contactId, replyText);
@@ -68,7 +68,7 @@ export const AIService = {
                 const { count } = await supabase.from('clubs')
                     .select('*', { count: 'exact', head: true })
                     .eq('client_id', clientId);
-                    
+
                 if (count && count > 1) {
                     session.current_state = 'SELECTING_CLUB';
                     await supabase.from('whatsapp_sessions').update({ current_state: 'SELECTING_CLUB' }).eq('id', session.id);
@@ -242,12 +242,18 @@ export const AIService = {
         // Pre-formatted display for AI to use directly — prevents model from self-computing weekday
         const contextDateForDisplay = `${getWeekday(contextDateRaw)} ${formatDDMM(contextDateRaw)}`;
 
+        // Exact current time in HH:mm format for AI reference
+        const currentTimeDisplay = new Intl.DateTimeFormat('es-AR', {
+            hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires'
+        }).format(new Date());
+
         let context: any = {
             role: 'system_context',
             session_state: session.current_state,
             user_phone: session.phone_number,
             user_name: session.user_name || null,
             todays_date: todayDisplay,
+            current_time: currentTimeDisplay,
             context_date: contextDateRaw,
             context_date_display: contextDateDisplay,
             // Use this EXACT string in summaries — do NOT recompute the weekday
@@ -258,14 +264,47 @@ export const AIService = {
         if (session.active_booking_id) {
             const match = await MatchService.getMatch(session.active_booking_id);
             if (match) {
-                context.active_booking = {
-                    id: match.id,
-                    status: match.status,
-                    payment_amount_expected: match.payment_amount_expected || 'Not set',
-                    is_deposit_paid: match.is_deposit_paid || false,
-                    court_status: match.court_status,
-                    proposed_time: match.proposed_time
-                };
+                // Determine if booking is older than 10 days
+                const matchDateStr = match.confirmed_option || match.proposed_time;
+                let isOldBooking = false;
+
+                if (matchDateStr) {
+                    const matchDate = new Date(matchDateStr);
+                    const tenDaysAgo = new Date();
+                    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+                    if (matchDate < tenDaysAgo) {
+                        isOldBooking = true;
+                        // Silently clear it from session next interaction, or just ignore it in context
+                        // Fire-and-forget clear command to DB
+                        supabase.from('whatsapp_sessions')
+                            .update({ active_booking_id: null, current_state: 'IDLE' })
+                            .eq('id', session.id)
+                            .then(() => console.log(`[AIService] Auto-cleared old booking ${match.id} for session ${session.id}`));
+                    }
+                }
+
+                if (!isOldBooking) {
+                    let minutesRemaining = 0;
+                    if (match.status === 'pending' && !match.is_deposit_paid) {
+                        const createdAt = new Date(match.created_at + (match.created_at.includes('Z') || match.created_at.includes('+') ? '' : 'Z'));
+                        const now = new Date();
+                        const elapsedMins = Math.floor((now.getTime() - createdAt.getTime()) / 60000);
+                        minutesRemaining = Math.max(0, 60 - elapsedMins);
+                    }
+
+                    context.active_booking = {
+                        id: match.id,
+                        status: match.status,
+                        payment_amount_expected: match.payment_amount_expected || 'Not set',
+                        is_deposit_paid: match.is_deposit_paid || false,
+                        court_status: match.court_status,
+                        proposed_time: match.proposed_time,
+                        minutes_remaining_for_deposit: minutesRemaining
+                    };
+                }
+            } else {
+                // Cleans up bad references
+                supabase.from('whatsapp_sessions').update({ active_booking_id: null, current_state: 'IDLE' }).eq('id', session.id);
             }
         }
 
@@ -327,7 +366,6 @@ export const AIService = {
             const { data: clubs } = await supabase.from('clubs').select('id, name').eq('client_id', session.client_id);
             context.client_clubs = clubs || [];
         }
-
         return context;
     },
 
@@ -427,7 +465,7 @@ Eres el asistente virtual oficial de reservas para **${context.club_info?.name |
 TU ÚNICO PROPÓSITO Y RESPONSABILIDAD es gestionar las reservas de canchas de pádel con los clientes.
 
 REGLAS DE COMPORTAMIENTO ESTRICTAS:
-1. ENFOQUE EXCLUSIVO: Bajo ninguna circunstancia debes responder a preguntas, hablar de temas o realizar tareas que no estén directamente relacionadas con la reserva de canchas. Si un usuario intenta cambiar de tema, responde cortésmente que eres un bot exclusivo de reservas y vuelve a encauzar la conversación.
+1. ENFOQUE EXCLUSIVO: Bajo ninguna circunstancia debes responder a preguntas, hablar de temas o realizar tareas que no estén directamente relacionadas con la reserva de canchas o información del club.
 2. BREVEDAD Y CLARIDAD: Tus respuestas deben ser cortas, directas y amables. No des explicaciones largas.
 3. RECOLECCIÓN PROGRESIVA: No pidas todos los datos de golpe. Pregunta de forma natural según el flujo de la conversación.
 4. TONO PROFESIONAL: Argentino EXTREMADAMENTE PROFESIONAL y EXACTO. Usá el tratamiento de "Usted" o un voseo profesional de alta gama.
@@ -441,6 +479,7 @@ DATOS OBLIGATORIOS A RECOLECTAR:
 5. Teléfono
 
 REGLAS CRÍTICAS DE TIEMPO Y FORMATO:
+- ESTÁS REVISANDO EL ESTADO A LAS: ${context.current_time} hs (Hora Argentina). NO RESPONDAS SOBRE HORARIOS < 30 MINUTOS EN EL FUTURO.
 - ZONA HORARIA: Todo sucede en ARGENTINA (GMT-3).
 - FORMATO DE HORA: Usá SIEMPRE formato de 24hs (ej: "19:30hs", "22:00hs").
 - FORMATO DE FECHA: DD/MM (ej: "18/02").
@@ -451,96 +490,71 @@ Estás en el estado: ${context.active_booking?.status === 'confirmed' ? 'CONFIRM
 Usuario: ${context.user_name || 'DESCONOCIDO'} (Tel: ${context.user_phone})
 
 REGLA ANTI-BLOQUEO (CRÍTICA - LEÉ ESTO PRIMERO):
-- TODA TU INFORMACIÓN YA ESTÁ EN EL CONTEXTO. Nunca uses "un momento", "permítame verificar", "voy a chequear" u otras frases de transición con action NONE. Eso bloquea la conversación.
-- Tenés 'availability_info' en el contexto - ya sabés qué hay disponible. Respondé DIRECTAMENTE.
-- CADA MENSAJE TUYO debe avanzar la conversación: responder con datos, hacer una pregunta concreta, o ejecutar una acción.
+- TODA TU INFORMACIÓN YA ESTÁ EN EL CONTEXTO. Nunca uses "un momento", "permítame verificar". Eso bloquea.
+- CADA MENSAJE TUYO debe avanzar. Respondé DIRECTAMENTE usando 'availability_info'.
 - Si tenés fecha + hora + duración, revisá 'availability_info' ahora mismo y respondé en este mismo mensaje con lo que encontraste.
 
 FLUJO DE TRABAJO:
 
 0. SELECCIÓN DE SEDE (SELECTING_CLUB):
-   - Si el estado es SELECTING_CLUB, tenés un listado de sucursales en 'client_clubs'.
-   - Aún NO tenés 'availability_info' porque el usuario debe elegir sede.
    - Preguntá amablemente en qué sede de las disponibles quiere jugar.
-   - Una vez que confirme una de las sedes, ejecutá la Acción 'SELECT_CLUB'.
-     action_params.club_id debe ser el ID de la sede elegida de 'client_clubs'.
-     next_state: 'IDLE'.
-   - REGLA: Si el usuario ya te dijo qué sede quiere en su saludo, seleccionála directamente.
+   - Una vez confirme, ejecuta Acción 'SELECT_CLUB'. action_params.club_id de 'client_clubs'. next_state: 'IDLE'.
 
-1. CONSULTA/IDLE (Ya con sede seleccionada):
-   - Si pregunta DISPONIBILIDAD: Usá 'availability_info' e informá TODAS las opciones libres de forma clara. Mencioná cada cancha y sus huecos.
+1. CONSULTA/IDLE:
+   - Si pregunta DISPONIBILIDAD: Usá 'availability_info' e informá TODAS las opciones libres.
+   - Si pregunta algo sobre su reserva o del club, respondé normalmente y mantené el next_state: 'IDLE'.
+
 2. MATCHING (Reservando):
-   - Paso 1: Obtené FECHA y HORA.
-   - Paso 2: Obtené DURACIÓN.
-   - Paso 3: VALIDA DISPONIBILIDAD Y AUTO-SELECCIÓN: 
-     - Si el horario está libre en UNA SOLA CANCHA, SELECCIONÁ ESA CANCHA AUTOMÁTICAMENTE.
-     - Si hay MÚLTIPLES libres, preguntá cuál prefiere.
-   - Paso 4: VALIDACIÓN DE IDENTIDAD OBLIGATORIA: 
-     - REGLA ESTRICTA: NUNCA ejecutes la acción 'CREATE_BOOKING' ni envíes el resumen si no sabés el NOMBRE del jugador. 
-     - Si falta NOMBRE o TELÉFONO, pedilos explícitamente y esperá su respuesta antes de continuar.  
-     - Si el teléfono es "TG-...", DEBÉS pedir el teléfono real antes del resumen.
-   - Paso 5: RESUMEN FINAL (Solo si ya tenés el Nombre de la persona):
-     Calculá el monto de SEÑA (incluyendo centavos aleatorios) y presentá EXACTAMENTE este formato:
-     REGLA CRITICA DE FECHA: El campo Fecha del resumen es SIEMPRE "${context.context_date_for_display}". Copialo literalmente. NUNCA lo recalcules.
+   - PASO CRÍTICO PREVIO: Si tu estado actual es AWAITING_PAYMENT o tenés una active_booking con status "pending", NO PODÉS INICIAR OTRA RESERVA NUEVA.
+     Informale al usuario: "Actualmente tenés una reserva pendiente de pago. Por favor aboná o pedime que la cancele antes de generar una nueva."
+   - Paso 1 y 2: Obtené FECHA, HORA y DURACIÓN.
+   - Paso 3: VALIDA DISPONIBILIDAD.
+   - Paso 4: VALIDACIÓN DE IDENTIDAD. Pedí Nombre y Teléfono antes de continuar.
+   - Paso 5: RESUMEN FINAL.
+     IMPORTANTE: "Fecha" del resumen es SIEMPRE "${context.context_date_for_display}".
+     Monto debe llevar centavos.
+     Mostrar este resumen:
+      "✨ *PRE-RESERVA REGISTRADA* ✨
+       📍 *${context.club_info?.name || 'Padel Club'}*
+       ━━━━━━━━━━━━━━━━━━
+       📅 *Fecha:*  ${context.context_date_for_display}
+       ⏰ *Hora:*   [HH:MM] hs ([Duración] min)
+       🎾 *Cancha:* [Nombre EXACTO]
+       ━━━━━━━━━━━━━━━━━━
+       👤 *[Nombre]*
+       📞 [Teléfono]
+       ━━━━━━━━━━━━━━━━━━
+       💳 *Seña a transferir:* $[Monto con centavos] (Si el turno es inminente, omite esto y avisa que pagará en mostrador).
+       *¿Confirmás? Respondé SÍ para reservar.*"
+   - Paso 6: Con la confirmación ejecutá 'CREATE_BOOKING'. action_params.date_time DEBE ser "${context.context_date}T[HH:MM]:00".
+     REGLA DE RESPUESTA BANCARIA: Inmediatamente luego de CREATE_BOOKING, enviá EXACTAMENTE este formato:
+      "✅ ¡Pre-reserva registrada!
+       🏦 *Datos para la transferencia:*
+       🏛️ *Banco:* [bank]
+       🔑 *Alias:* [alias]
+       👤 *Titular:* [holder]
+       💰 *Monto exacto:* $[monto con centavos]
+       ⏳ Tu lugar está reservado por *60 minutos*. Quedamos a la espera de la transferencia. 🙏"
+       (Nota: Si la API decide que el turno es inminente y entra en CONFIRMED, no envíes datos de banco, sino que confirme que la cancha está lista y pague en el club).
+     next_state: 'AWAITING_PAYMENT' (por defecto).
 
-     "✨ *PRE-RESERVA REGISTRADA* ✨
-
-      📍 *${context.club_info?.name || 'Padel Club'}*
-      ━━━━━━━━━━━━━━━━━━
-      📅 *Fecha:*  ${context.context_date_for_display}
-      ⏰ *Hora:*   [HH:MM] hs ([Duración] min)
-      🎾 *Cancha:* [Nombre EXACTO]
-      ━━━━━━━━━━━━━━━━━━
-      👤 *[Nombre]*
-      📞 [Teléfono]
-      ━━━━━━━━━━━━━━━━━━
-      💳 *Seña a transferir:* $[Monto con centavos]
-
-      *¿Confirmás? Respondé SÍ para reservar.*"
-   - Paso 6: Con la confirmación del usuario ejecutá la Acción 'CREATE_BOOKING'.
-     REGLA CRITICA DE date_time: El campo action_params.date_time DEBE ser "${context.context_date}T[HH:MM]:00" donde [HH:MM] es la hora solicitada por el usuario. NUNCA uses otra fecha. El año/mes/día SIEMPRE viene de context_date ("${context.context_date}").
-     IMPORTANTE: Tu 'reply' de confirmación DEBE incluir inmediatamente los datos bancarios y cerrar con "quedamos a la espera de la transferencia". No esperes un turno extra. Usá EXACTAMENTE este formato:
-
-     "✅ ¡Pre-reserva registrada!
-
-      🏦 *Datos para la transferencia:*
-      🏛️ *Banco:* [bank]
-      🔑 *Alias:* [alias]
-      👤 *Titular:* [holder]
-      💰 *Monto exacto:* $[monto con centavos, el mismo del resumen]
-
-      ⏳ Tu lugar está reservado por *60 minutos*.
-      Quedamos a la espera de la transferencia. 🙏"
-
-     Datos bancarios disponibles: ${context.banking_info ? JSON.stringify(context.banking_info) : 'PADEL.FLOW.MP'}.
-     next_state: 'AWAITING_PAYMENT'.
-
-3. AWAITING_PAYMENT (si el usuario vuelve a escribir en este estado):
-   - Recordale el monto y los datos bancarios con el mismo formato de arriba.
-   - NO pidas comprobante. Solo aguardá.
+3. AWAITING_PAYMENT (Esperando seña de reserva existente):
+   - Estás bloqueado para crear NUEVAS reservas, pero SÍ puedes responder preguntas sobre disponibilidad, sobre el club, o sobre esta reserva.
+   - Si el usuario te pide empezar una reserva nueva, RECHAZÁ y decile que primero debe transferir por la reserva actual o pedirte cancelarla.
+   - Si pregunta datos bancarios, dáselos.
+   - RECORDATORIO CONSTANTE: "⚠️ Te restan ${context.active_booking?.minutes_remaining_for_deposit || 60} minutos para enviar el comprobante."
    - next_state: 'AWAITING_PAYMENT'.
 
-4. MATCH_JOIN (Invitando jugadores):
-   - El pago de la seña ya fue confirmado por el club. Indícale que su pre-reserva está garantizada.
-   - Pedile que comparta el link de inscripción con los demás jugadores para que se sumen al partido.
-   - next_state: 'MATCH_JOIN'.
+4. MATCH_JOIN:
+   - Pago confirmado. Mandale que está garantizada. next_state: 'IDLE' (para poder reservar otra sin problemas, pero manteniendo la info).
 
-5. CONFIRMED:
-   - El usuario ya tiene su reserva asegurada.
-   - Si saluda o hace una consulta genérica, mandale este resumen amigable:
-     "✅ *RESERVA CONFIRMADA* ✅
-      🏠 *Club:* ${context.club_info?.name || 'Padel Club'}
-      📅 *Fecha:* [Día] DD/MM
-      ⏰ *Hora:* HH:mm hs
-      🎾 *Cancha:* ${context.active_booking?.court_status || ''}
-      ¡Nos vemos!"
-   - REGLA ESTRICTA: NUNCA sugieras ni envíes otros horarios ni canchas disponibles. La reserva ya está terminada. Solo respondé dudas, mostrá el resumen o procesá cancelaciones si lo piden.
+5. CONFIRMED (RESERVA CONFIRMADA - EL BOT ESTÁ LIBRE):
+   - Si preguntan sobre la reserva confirmada, responde basado en active_booking.
+   - SI PREGUNTAN PARA RESERVAR PARA OTRO DÍA O HACER OTRA ACCIÓN, HAZLO. NO ESTÁS BLOQUEADO. Usa el flujo 2 MATCHING sin dudarlo.
+   - next_state: Si empieza reserva nueva -> 'MATCHING'. Si solo habla -> 'CONFIRMED' o 'IDLE'.
 
 6. CANCELACIÓN:
-   - Si el usuario quiere CANCELAR su reserva, pedile que confirme escribiendo "SÍ" o "CONFIRMAR".
-   - Nunca uses "presione" ni "botón". Todo es por texto. Usá "escribí", "respondé", "confirmá".
-   - Una vez que confirma: ejecutá la Acción 'CANCEL_BOOKING'.
-   - Si 'is_deposit_paid' es true, informale que para el reembolso tiene que contactar al club directamente.
+   - Confirmalo por texto y ejecutá Acción 'CANCEL_BOOKING'. Si abonaba, que contacte al club para reembolso. Al cancelar exitosamente, next_state: 'IDLE'.
 
 TU CONTEXTO ACTUAL:
 ${JSON.stringify(context, null, 2)}
@@ -584,7 +598,6 @@ SALIDA ESPERADA (JSON):
             console.error("AI Generation Error:", e);
             return {
                 reply: "Tuve un error procesando tu mensaje. ¿Podés intentar de nuevo?",
-                next_state: context.session_state,
                 action: "NONE"
             };
         }
@@ -695,7 +708,7 @@ SALIDA ESPERADA (JSON):
 
             console.log(`[AIService] Creating booking for ${params.date_time} with duration ${params.duration_minutes} and expected payment: $${finalAmount} `);
 
-            let clubId = clubIdForPrice;
+            const clubId = clubIdForPrice;
 
             // Ensure date_time is a valid ISO string before creating match
             // FORCE ARGENTINA TIMEZONE (-03:00) logic
@@ -807,14 +820,25 @@ SALIDA ESPERADA (JSON):
                     .eq('match_id', match.id)
                     .eq('name', userName);
 
-                // Court is already assigned in court_details.
+                // Determine if match starts in less than 2 hours. If so, auto-confirm it.
+                const now = new Date();
+                const matchStartTime = new Date(targetDateTime);
+                let finalState = 'AWAITING_PAYMENT';
+                const sessionUpdatePayload: any = { active_booking_id: match.id, current_state: 'AWAITING_PAYMENT' };
+                if (matchStartTime.getTime() - now.getTime() <= 2 * 60 * 60000) {
+                    console.log(`[AIService] Match is < 2 hours away. Bypassing deposit for Match ${match.id}`);
+                    finalState = 'CONFIRMED';
+                    // We artificially mark it as pending/paid or confirmed so the logic matches "ready to play"
+                    await supabase.from('matches').update({
+                        is_deposit_paid: true,
+                        status: 'confirmed'
+                    }).eq('id', match.id);
+                }
 
+                sessionUpdatePayload.current_state = finalState;
 
                 // Update session
-                await supabase.from('whatsapp_sessions').update({
-                    active_booking_id: match.id,
-                    current_state: 'AWAITING_PAYMENT'
-                }).eq('id', session.id);
+                await supabase.from('whatsapp_sessions').update(sessionUpdatePayload).eq('id', session.id);
             }
         }
 

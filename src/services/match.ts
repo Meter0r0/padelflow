@@ -729,9 +729,19 @@ export const MatchService = {
             let current = new Date(`${targetDateStrRaw}T${dayConfig.open}:00-03:00`);
             const closeTime = new Date(`${targetDateStrRaw}T${dayConfig.close}:00-03:00`);
 
+            // Calculate minimum allowed start time (now + 30 mins)
+            const now = new Date();
+            const minStartTime = new Date(now.getTime() + 30 * 60000);
+
             while (current < closeTime) {
                 const start = new Date(current);
                 const end = new Date(start.getTime() + 90 * 60000); // Check for 90-min duration
+
+                // Skip this slot if it's in the past or starts in less than 30 mins
+                if (start < minStartTime) {
+                    current.setMinutes(current.getMinutes() + 30);
+                    continue;
+                }
 
                 // Check if this slot overlaps with any match
                 const isOverlap = courtMatches.some(m => {
@@ -767,6 +777,15 @@ export const MatchService = {
      */
     async isCourtAvailable(clubId: string, courtName: string, time: string, durationMinutes: number): Promise<boolean> {
         const startTime = new Date(time);
+
+        // Reject if the requested time is in the past or less than 30 mins away
+        const now = new Date();
+        const minAllowedTime = new Date(now.getTime() + 30 * 60000);
+        if (startTime < minAllowedTime) {
+            console.warn(`[isCourtAvailable] Rejected request for ${time}. Too close or in the past.`);
+            return false;
+        }
+
         const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
         const courtLower = courtName.trim().toLowerCase();
 
