@@ -725,7 +725,7 @@ export const MatchService = {
             );
 
             // Generate possible start times (every 30 mins)
-            const availableStarts: string[] = [];
+            const availableSlots: string[] = [];
             let current = new Date(`${targetDateStrRaw}T${dayConfig.open}:00-03:00`);
             const closeTime = new Date(`${targetDateStrRaw}T${dayConfig.close}:00-03:00`);
 
@@ -758,18 +758,24 @@ export const MatchService = {
                 });
 
                 if (!isOverlap && end <= closeTime) {
-                    availableStarts.push(start.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' }));
+                    const startTimeStr = start.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' });
+                    const endTimeStr = end.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' });
+                    availableSlots.push(`${court.name} (${court.type || 'Padel'}), a las ${startTimeStr}hs hasta las ${endTimeStr}hs.`);
                 }
                 current.setMinutes(current.getMinutes() + 30);
             }
 
-            if (availableStarts.length === 0) {
-                return `${court.name}: SIN DISPONIBILIDAD`;
-            }
-            return `${court.name}: Opciones de 90min libres en [${availableStarts.join(', ')}]`;
+            return availableSlots;
         });
 
-        return `DISPONIBILIDAD REAL PARA EL ${dateStr} (Club abre ${dayConfig.open} a ${dayConfig.close}hs):\n${results.join('\n')}`;
+        // Flatten slots and format output
+        const allSlots = results.flat();
+
+        if (allSlots.length === 0) {
+            return `Para el ${dateStr} no hay canchas disponibles.`;
+        }
+
+        return `Para el ${dateStr} las canchas disponibles son:\n${allSlots.join('\n')}`;
     },
 
     /**
