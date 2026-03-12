@@ -784,25 +784,26 @@ export const MatchService = {
     async isCourtAvailable(clubId: string, courtName: string, time: string, durationMinutes: number): Promise<boolean> {
         const startTime = new Date(time);
 
-        // Reject if the requested time is in the past or less than 30 mins away
+        // Reject if the requested time is in the past or less than 15 mins away (added grace period for delayed AI context)
         const now = new Date();
-        const minAllowedTime = new Date(now.getTime() + 30 * 60000);
+        const minAllowedTime = new Date(now.getTime() + 15 * 60000);
         if (startTime < minAllowedTime) {
             console.warn(`[isCourtAvailable] Rejected request for ${time}. Too close or in the past.`);
             return false;
         }
 
         const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
-        const courtLower = courtName.trim().toLowerCase();
+
+        // Remove trailing descriptors like "(Cristal)" or "(Padel)" that the AI might pass
+        const sanitizedCourtName = courtName.replace(/\s*\(.*\)\s*/g, '').trim().toLowerCase();
 
         // Query potentially overlapping matches assigned to this club
         // We look for any match in status 'confirmed' or 'pending' assigned to this court
         const { data: matches } = await supabase
             .from('matches')
-            .select('id, confirmed_option, proposed_time, duration_minutes, is_regular, status, court_status')
+            .select('id, confirmed_option, proposed_time, duration_minutes, is_regular, status, court_status, court_details')
             .eq('club_id', clubId)
-            .or(`status.in.("confirmed","pending"),court_status.eq.reserved`)
-            .ilike('court_details', `%${courtName.trim()}%`);
+            .or(`status.in.("confirmed","pending"),court_status.eq.reserved`);
 
         if (!matches || matches.length === 0) return true;
 
@@ -810,6 +811,12 @@ export const MatchService = {
         const targetDateStrRaw = getArDate(startTime);
 
         for (const m of matches) {
+            const mCourt = (m.court_details || '').trim().toLowerCase();
+
+            // Only check overlaps for the EXACT same court, or 'cancha a designar' which could be any court
+            if (mCourt !== sanitizedCourtName && mCourt !== 'cancha a designar') {
+                continue;
+            }
             const mTimeStr = m.confirmed_option || m.proposed_time;
             if (!mTimeStr) continue;
             const mDate = new Date(mTimeStr);
