@@ -771,11 +771,18 @@ export const MatchService = {
         // Flatten slots and format output
         const allSlots = results.flat();
 
+        const displayDate = new Intl.DateTimeFormat('es-AR', {
+            weekday: 'long',
+            day: '2-digit',
+            month: '2-digit',
+            timeZone: 'America/Argentina/Buenos_Aires'
+        }).format(d);
+
         if (allSlots.length === 0) {
-            return `Para el ${dateStr} no hay canchas disponibles.`;
+            return `Para el ${displayDate} no hay canchas disponibles.`;
         }
 
-        return `Para el ${dateStr} las canchas disponibles son:\n${allSlots.join('\n')}`;
+        return `Para el ${displayDate} las canchas disponibles son:\n${allSlots.join('\n')}`;
     },
 
     /**
