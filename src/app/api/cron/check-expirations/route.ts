@@ -14,10 +14,9 @@ import { MatchService } from '@/services/match';
 
 export async function GET(req: NextRequest) {
     const authHeader = req.headers.get('authorization');
-    // Simple security check if needed
-    // if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    //     return new NextResponse('Unauthorized', { status: 401 });
-    // }
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return new NextResponse('Unauthorized', { status: 401 });
+    }
 
     console.log('[Cron] Checking expirations...');
 
